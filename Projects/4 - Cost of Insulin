@@ -1,0 +1,859 @@
+
+import requests
+import time
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+import chromedriver_binary
+
+import pandas as pd
+import numpy as np
+import pickle
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression, Lasso, LassoCV, Ridge, RidgeCV, ElasticNet
+from sklearn.metrics import r2_score
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error
+# from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import KFold
+
+from math import sqrt
+Scraping
+#This scrapes the google trends website for the csv I need to run trends data. Turns out the table I wanted from the CMS website wouldn't populate.
+# url = 'https://portal.cms.gov/wps/portal/unauthportal/unauthmicrostrategyreportslink?evt=2048001&src=mstrWeb.2048001&documentID=203D830811E7EBD800000080EF356F31&visMode=0&currentViewMedia=1&Server=E48V126P&Project=OIPDA-BI_Prod&Port=0&connmode=8&ru=1&share=1&hiddensections=header,path,dockTop,dockLeft,footer'
+url = 'https://trends.google.com/trends/?geo=US'
+response  = requests.get(url)
+# print(response.text)
+
+driver = webdriver.Chrome()
+driver.get(url)
+driver.maximize_window()
+time.sleep(1)
+
+
+username_form = driver.find_element_by_id("input-1")
+username_form.send_keys('insulin pricing')
+username_form.send_keys(Keys.RETURN)
+click_label = driver.find_element_by_id('select_value_label_10') #Once it changed from *label_11. Watch out for this
+click_label.click()
+click2 = driver.find_element_by_id('select_option_22').click() #This changed from 23 as well.
+download = driver.find_element_by_xpath("//button[@class='widget-actions-item export']")
+download.click() #Yay!
+Functions
+#defines root mean square error
+def rmse(y_true,y_pred):
+    return sqrt(mean_squared_error(y_true, y_pred))
+#takes a list, checks a column for its contents, returns a boolean which can be used as a mask
+def _check_column_for_list(x):
+    return any([y in x for y in list(insulin_mask['brandname'])]) 
+#applies an elastic net with inputtable random state
+def iterate_elastic_net(df,ranstate):
+    X = df.loc[:,['Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+    y = df['Total Spending']
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2,random_state=ranstate)
+    
+    lm_elastic_test = ElasticNet(alpha = best_alpha, l1_ratio=.5)
+    X_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    lm_elastic_test.fit(X_scaled, y_train)
+    
+    
+
+    val_set_pred = lm_elastic_test.predict(X_test_scaled)
+    err_vec_val[i] = rmse(y_test, val_set_pred)
+    
+    return list(zip(selected_columns, lm_elastic_test.coef_))
+    
+Cleaning
+data_xls = pd.read_excel('Medicare Part D Drug Spending YTD 2017.xlsx', 'Manufacturer Summary', index_col=None)
+drug_info = pd.read_excel('Medicare Part D Drug Spending YTD 2017.xlsx', 'Drug Use Information', index_col=None)
+drug_info = pd.read_excel('Medicare Part D Drug Spending YTD 2017.xlsx', 'Drug Use Information', index_col=None)
+headers = data_xls.iloc[4]
+new_df = pd.DataFrame(data_xls.values[1:], columns=headers)
+#rename columns, drop unneeded ones & nulls, and provide sample of first 5 rows
+drug_info.rename(columns={'Medicare Part D Drug Use Information, Calendar Year 2017':'brandname', 'Unnamed: 1':'genericname', 'Unnamed: 2':'description'},inplace=True)
+drug_info_cleaned = drug_info.drop([0,1,2,3])
+drug_info_cleaned = drug_info_cleaned.dropna()
+drug_info_cleaned.head(5)
+brandname	genericname	description
+4	1st Tier Unifine Pentips	Pen Needle, Diabetic	Drug uses not available
+5	1st Tier Unifine Pentips Plus	Pen Needle, Diabetic	Drug uses not available
+6	Abacavir	Abacavir Sulfate	This drug is used with other HIV medications t...
+7	Abacavir-Lamivudine	Abacavir Sulfate/Lamivudine	This product contains 2 drugs: abacavir and la...
+8	Abacavir-Lamivudine-Zidovudine	Abacavir/Lamivudine/Zidovudine	This product contains 3 drugs: abacavir, lamiv...
+#create filter for insulin only. All drugs below were researched and confirmed to be insulin, and made by one of the three primary manufacturers (Novo Nordisk, Eli Lilly, and Sanofi) with the exception of Afrezza, which is its own company, MannKind (fun fact: it's inhalable) 
+insulin_info = drug_info_cleaned[drug_info_cleaned['description'].str.contains('is used with a proper diet and exercise program to control high blood sugar in people with diabetes')] #found a pattern in the descriptions! 
+insulin_mask = insulin_info[~insulin_info['genericname'].str.contains('Syringe')]
+insulin_mask.sort_values(['genericname'])
+insulin_mask
+brandname	genericname	description
+65	Afrezza	Insulin Regular, Human	Inhaled insulin powder is used with a proper d...
+164	Apidra	Insulin Glulisine	Insulin glulisine is used with a proper diet a...
+165	Apidra Solostar	Insulin Glulisine	Insulin glulisine is used with a proper diet a...
+266	Basaglar Kwikpen U-100	Insulin Glargine,Hum.Rec.Anlog	Insulin glargine is used with a proper diet an...
+1161	Humalog	Insulin Lispro	Insulin lispro is used with a proper diet and ...
+1162	Humalog Kwikpen U-100	Insulin Lispro	Insulin lispro is used with a proper diet and ...
+1163	Humalog Kwikpen U-200	Insulin Lispro	Insulin lispro is used with a proper diet and ...
+1174	Humulin 70-30	Insulin NPh Hum/Reg Insulin Hm	Combination isophane/regular insulin is used w...
+1175	Humulin 70/30 Kwikpen	Insulin NPh Hum/Reg Insulin Hm	Combination isophane/regular insulin is used w...
+1176	Humulin N	Insulin NPh Human Isophane	Insulin isophane is used with a proper diet an...
+1177	Humulin N Kwikpen	Insulin NPh Human Isophane	Insulin isophane is used with a proper diet an...
+1178	Humulin R	Insulin Regular, Human	Insulin regular is used with a proper diet and...
+1179	Humulin R U-500	Insulin Regular, Human	Concentrated insulin regular is used with a pr...
+1180	Humulin R U-500 Kwikpen	Insulin Regular, Human	Concentrated insulin regular is used with a pr...
+1372	Lantus	Insulin Glargine,Hum.Rec.Anlog	Insulin glargine is used with a proper diet an...
+1373	Lantus Solostar	Insulin Glargine,Hum.Rec.Anlog	Insulin glargine is used with a proper diet an...
+1399	Levemir	Insulin Detemir	Insulin detemir is used with a proper diet and...
+1400	Levemir Flextouch	Insulin Detemir	Insulin detemir is used with a proper diet and...
+1792	Novolin 70-30	Insulin NPh Hum/Reg Insulin Hm	Combination isophane/regular insulin is used w...
+1793	Novolin N	Insulin NPh Human Isophane	Insulin isophane is used with a proper diet an...
+1794	Novolin R	Insulin Regular, Human	Insulin regular is used with a proper diet and...
+1795	Novolog	Insulin Aspart	Insulin aspart is used with a proper diet and ...
+1796	Novolog Flexpen	Insulin Aspart	Insulin aspart is used with a proper diet and ...
+2521	Toujeo Solostar	Insulin Glargine,Hum.Rec.Anlog	Insulin glargine is used with a proper diet an...
+2540	Tresiba Flextouch U-100	Insulin Degludec	Insulin degludec is used with a proper diet an...
+2541	Tresiba Flextouch U-200	Insulin Degludec	Insulin degludec is used with a proper diet an...
+#make new df for each years' data from excel's incompatible format.
+df_manus = new_df.iloc[:,0:3]
+df_2013 = new_df.iloc[:,3:10]
+df_2014 = new_df.iloc[:,10:17]
+df_2015 = new_df.iloc[:,17:24]
+df_2016 = new_df.iloc[:,24:31]
+df_2017 = new_df.iloc[:,31:38]
+#create structure for the unique identifier.
+df_manus['ID'] = df_manus['Brand Name'] + '/' + df_manus['Generic Name'] + '/' + df_manus['Manufacturer']
+/home/nick/anaconda3/lib/python3.7/site-packages/ipykernel_launcher.py:2: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
+  
+#create ID columns in each df, and add year column.
+df_list = [df_2013, df_2014, df_2015, df_2016, df_2017]
+year = 2013
+for df in df_list:
+    df['ID'] = df_manus['ID']
+    df['Year'] = str(year)
+    year += 1
+
+    
+/home/nick/anaconda3/lib/python3.7/site-packages/ipykernel_launcher.py:5: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
+  """
+/home/nick/anaconda3/lib/python3.7/site-packages/ipykernel_launcher.py:6: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
+  
+#combine dfs
+cdf = pd.concat([df_2013,df_2014,df_2015,df_2016,df_2017]).reset_index(drop=True)
+grpcdf = cdf.sort_values(['ID', 'Year'])
+grpcdf.columns = grpcdf.columns.str.strip()
+grpcdf.rename(columns={'Total \nClaims':'Total Claims'},inplace=True)
+grpcdf.columns
+Index(['Total Spending', 'Total Dosage Units', 'Total Claims',
+       'Total Beneficiaries', 'Average Spending Per Dosage Unit (Weighted)',
+       'Average Spending Per Claim', 'Average Spending Per Beneficiary', 'ID',
+       'Year'],
+      dtype='object', name=4)
+cols = ['ID', 'Year', 'Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries', 'Average Spending Per Dosage Unit (Weighted)', 'Average Spending Per Claim', 'Average Spending Per Beneficiary']
+grpcdf = grpcdf[cols]
+drop_null = grpcdf.dropna()
+intcols = ['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries', 'Average Spending Per Dosage Unit (Weighted)', 'Average Spending Per Claim', 'Average Spending Per Beneficiary']
+drop_null[intcols] = drop_null[intcols].apply(pd.to_numeric, errors='coerce', axis=1) #errors 'coerce' turns the values to NaN that don't work.
+drop_null['dt_year'] = pd.to_datetime(drop_null['Year'])
+/home/nick/anaconda3/lib/python3.7/site-packages/pandas/core/frame.py:3391: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
+  self[k1] = value[k2]
+/home/nick/anaconda3/lib/python3.7/site-packages/ipykernel_launcher.py:3: SettingWithCopyWarning: 
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+
+See the caveats in the documentation: http://pandas.pydata.org/pandas-docs/stable/indexing.html#indexing-view-versus-copy
+  This is separate from the ipykernel package so we can avoid doing imports until
+with open('clean_df.pickle', 'wb') as to_write:
+    pickle.dump(drop_null, to_write)
+    
+Create insulin dataframes
+with open('clean_df.pickle', 'rb') as read_file:
+    cleaned_df = pickle.load(read_file)
+cleaned_df2 = cleaned_df.copy()
+boolean_split = cleaned_df2.ID.map(_check_column_for_list) #this searches the df for all insulin drug names and creates an insuling df by using the mask from the boolean.
+boolean_split.value_counts()
+insulin_df = cleaned_df2[boolean_split]
+insulin_df.sample(10)
+4	ID	Year	Total Spending	Total Dosage Units	Total Claims	Total Beneficiaries	Average Spending Per Dosage Unit (Weighted)	Average Spending Per Claim	Average Spending Per Beneficiary	dt_year
+3019	Humulin 70/30 Kwikpen/Insulin NPh Hum/Reg Insu...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+6553	Toujeo Solostar/Insulin Glargine,Hum.Rec.Anlog...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+25218	Lantus Solostar/Insulin Glargine,Hum.Rec.Anlog...	2016	2.526426e+09	1.026912e+08	5029203.0	1075461.0	24.602169	502.351263	2349.156760	2016-01-01
+4797	Novolog Flexpen/Insulin Aspart/Novo Nordisk	2013	6.196661e+08	3.231045e+07	1579973.0	425402.0	19.178505	392.200421	1456.659998	2013-01-01
+31903	Humulin R U-500/Insulin Regular, Human/Eli Lil...	2017	1.456746e+08	2.062050e+06	73194.0	14547.0	70.645531	1990.253524	10014.065887	2017-01-01
+24667	Humalog Kwikpen U-200/Insulin Lispro/Eli Lilly...	2016	5.707476e+07	9.111670e+05	55104.0	17573.0	62.639185	1035.764339	3247.866507	2016-01-01
+3010	Humalog Mix 75-25/Insulin Lispro Protamin/Lisp...	2013	9.411063e+07	6.309951e+06	238482.0	44300.0	14.914638	394.623622	2124.393470	2013-01-01
+26456	Novolog/Insulin Aspart/Novo Nordisk	2016	5.797479e+08	2.317699e+07	1230313.0	283933.0	25.008167	471.219871	2041.847667	2016-01-01
+29016	Afrezza/Insulin Regular, Human/Mannkind Corpor	2017	1.538984e+06	4.242780e+05	2231.0	639.0	3.543422	689.818243	2408.426448	2017-01-01
+31904	Humulin R U-500 Kwikpen/Insulin Regular, Human...	2017	1.017165e+08	1.116094e+06	66332.0	13153.0	91.136103	1533.444983	7733.328719	2017-01-01
+with open('clean_insulin_df.pickle', 'wb') as to_write:
+    pickle.dump(insulin_df, to_write)
+Create yearly insulin dfs
+with open('clean_insulin_df.pickle', 'rb') as read_file:
+    insulin_df = pickle.load(read_file)
+insulin_df.sort_values('Average Spending Per Dosage Unit (Weighted)', ascending=False)
+4	ID	Year	Total Spending	Total Dosage Units	Total Claims	Total Beneficiaries	Average Spending Per Dosage Unit (Weighted)	Average Spending Per Claim	Average Spending Per Beneficiary	dt_year
+31904	Humulin R U-500 Kwikpen/Insulin Regular, Human...	2017	1.017165e+08	1.116094e+06	66332.0	13153.0	91.136103	1533.444983	7733.328719	2017-01-01
+24684	Humulin R U-500 Kwikpen/Insulin Regular, Human...	2016	2.837161e+07	3.265010e+05	19413.0	NaN	86.895931	1461.474695	NaN	2016-01-01
+35433	Toujeo Solostar/Insulin Glargine,Hum.Rec.Anlog...	2017	5.419546e+08	7.209778e+06	934611.0	190489.0	75.169392	579.871886	2845.070547	2017-01-01
+20993	Toujeo Solostar/Insulin Glargine,Hum.Rec.Anlog...	2015	5.689673e+07	7.667696e+05	99137.0	43006.0	74.203173	573.920268	1322.995247	2015-01-01
+28213	Toujeo Solostar/Insulin Glargine,Hum.Rec.Anlog...	2016	3.453243e+08	4.670429e+06	621495.0	148357.0	73.938468	555.634935	2327.657839	2016-01-01
+31903	Humulin R U-500/Insulin Regular, Human/Eli Lil...	2017	1.456746e+08	2.062050e+06	73194.0	14547.0	70.645531	1990.253524	10014.065887	2017-01-01
+31887	Humalog Kwikpen U-200/Insulin Lispro/Eli Lilly...	2017	9.422941e+07	1.386292e+06	83091.0	23598.0	67.972265	1134.050702	3993.109878	2017-01-01
+24683	Humulin R U-500/Insulin Regular, Human/Eli Lil...	2016	1.674151e+08	2.617328e+06	91109.0	18442.0	63.964114	1837.525025	9077.923626	2016-01-01
+24667	Humalog Kwikpen U-200/Insulin Lispro/Eli Lilly...	2016	5.707476e+07	9.111670e+05	55104.0	17573.0	62.639185	1035.764339	3247.866507	2016-01-01
+35494	Tresiba Flextouch U-200/Insulin Degludec/Novo ...	2017	3.272190e+08	5.525023e+06	371889.0	89703.0	59.224918	879.883602	3647.804788	2017-01-01
+28274	Tresiba Flextouch U-200/Insulin Degludec/Novo ...	2016	1.116238e+08	1.891046e+06	131851.0	42426.0	59.027528	846.590465	2631.023416	2016-01-01
+21054	Tresiba Flextouch U-200/Insulin Degludec/Novo ...	2015	1.323717e+05	2.268000e+03	111.0	97.0	58.364943	1192.537748	1364.656598	2015-01-01
+17447	Humalog Kwikpen U-200/Insulin Lispro/Eli Lilly...	2015	4.442692e+06	7.664500e+04	4020.0	2465.0	57.964539	1105.147281	1802.309156	2015-01-01
+17463	Humulin R U-500/Insulin Regular, Human/Eli Lil...	2015	1.589421e+08	2.771102e+06	97199.0	19527.0	57.357000	1635.223581	8139.606539	2015-01-01
+10243	Humulin R U-500/Insulin Regular, Human/Eli Lil...	2014	1.275362e+08	2.653585e+06	91795.0	18992.0	48.061828	1389.358527	6715.257266	2014-01-01
+3023	Humulin R U-500/Insulin Regular, Human/Eli Lil...	2013	9.350165e+07	2.343195e+06	81000.0	17209.0	39.903488	1154.341412	5433.299691	2013-01-01
+33677	Novolog Flexpen/Insulin Aspart/Novo Nordisk	2017	1.533124e+09	4.351961e+07	2187255.0	546717.0	35.228349	700.935194	2804.236940	2017-01-01
+33679	Novolog Mix 70-30 Flexpen/Insulin Aspart Prot/...	2017	4.642282e+08	1.324539e+07	478292.0	96569.0	35.048289	970.595756	4807.217485	2017-01-01
+31889	Humalog Mix 50-50 Kwikpen/Insulin Lispro Prota...	2017	2.924470e+07	8.639160e+05	26056.0	5730.0	33.851322	1122.378668	5103.786838	2017-01-01
+31891	Humalog Mix 75-25 Kwikpen/Insulin Lispro Prota...	2017	3.125664e+08	9.264341e+06	326752.0	67462.0	33.738656	956.586074	4633.221854	2017-01-01
+31886	Humalog Kwikpen U-100/Insulin Lispro/Eli Lilly...	2017	1.090044e+09	3.250177e+07	1513879.0	414797.0	33.537975	720.033474	2627.896430	2017-01-01
+29337	Apidra Solostar/Insulin Glulisine/Sanofi-Aventis	2017	1.907241e+07	5.931100e+05	25143.0	7740.0	32.156608	758.557293	2464.135146	2017-01-01
+26457	Novolog Flexpen/Insulin Aspart/Novo Nordisk	2016	1.163647e+09	3.666482e+07	1886285.0	486476.0	31.737431	616.898946	2391.993086	2016-01-01
+26459	Novolog Mix 70-30 Flexpen/Insulin Aspart Prot/...	2016	3.966871e+08	1.258554e+07	465200.0	97175.0	31.519267	852.723691	4082.192550	2016-01-01
+24669	Humalog Mix 50-50 Kwikpen/Insulin Lispro Prota...	2016	3.227054e+07	1.039074e+06	31653.0	7044.0	31.057017	1019.509632	4581.280291	2016-01-01
+24671	Humalog Mix 75-25 Kwikpen/Insulin Lispro Prota...	2016	3.135115e+08	1.015521e+07	368586.0	78009.0	30.871998	850.579046	4018.914844	2016-01-01
+22117	Apidra Solostar/Insulin Glulisine/Sanofi-Aventis	2016	2.659524e+07	8.632160e+05	36626.0	11586.0	30.809486	726.130116	2295.463632	2016-01-01
+24666	Humalog Kwikpen U-100/Insulin Lispro/Eli Lilly...	2016	1.029434e+09	3.345840e+07	1557195.0	434561.0	30.767568	661.082009	2368.904710	2016-01-01
+35493	Tresiba Flextouch U-100/Insulin Degludec/Novo ...	2017	1.114028e+08	3.739037e+06	217749.0	63235.0	29.794513	511.611015	1761.726684	2017-01-01
+28273	Tresiba Flextouch U-100/Insulin Degludec/Novo ...	2016	2.812285e+07	9.511885e+05	56321.0	21609.0	29.566008	499.331451	1301.441375	2016-01-01
+...	...	...	...	...	...	...	...	...	...	...
+19231	Novolin 70-30/Insulin NPh Hum/Reg Insulin Hm/N...	2015	1.693766e+07	6.215027e+06	187359.0	39743.0	2.725275	90.402168	426.179700	2015-01-01
+33673	Novolin N/Insulin NPh Human Isophane/Novo Nord...	2017	9.074466e+06	3.361452e+06	121832.0	28090.0	2.699567	74.483438	323.049703	2017-01-01
+26453	Novolin N/Insulin NPh Human Isophane/Novo Nord...	2016	8.181896e+06	3.067048e+06	113139.0	27563.0	2.667678	72.317199	296.843433	2016-01-01
+12015	Novolin R/Insulin Regular, Human/Novo Nordisk-Wa	2014	4.145083e+06	1.564790e+06	64180.0	18904.0	2.648971	64.585283	219.270179	2014-01-01
+12011	Novolin 70-30/Insulin NPh Hum/Reg Insulin Hm/N...	2014	1.339452e+07	5.092276e+06	152832.0	32882.0	2.630360	87.642123	407.351161	2014-01-01
+19233	Novolin N/Insulin NPh Human Isophane/Novo Nord...	2015	9.348380e+06	3.572872e+06	129700.0	29941.0	2.616489	72.076948	312.226716	2015-01-01
+4795	Novolin R/Insulin Regular, Human/Novo Nordisk-Wa	2013	3.247574e+06	1.260037e+06	52319.0	16148.0	2.577364	62.072554	201.113075	2013-01-01
+12013	Novolin N/Insulin NPh Human Isophane/Novo Nord...	2014	7.542614e+06	2.936793e+06	105761.0	24605.0	2.568316	71.317535	306.548011	2014-01-01
+4791	Novolin 70-30/Insulin NPh Hum/Reg Insulin Hm/N...	2013	1.093962e+07	4.299576e+06	131095.0	28696.0	2.544348	83.448029	381.224539	2013-01-01
+4793	Novolin N/Insulin NPh Human Isophane/Novo Nord...	2013	6.292852e+06	2.487643e+06	90298.0	20931.0	2.529644	69.689823	300.647442	2013-01-01
+136	Afrezza/Insulin Regular, Human/Mannkind Corpor	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+7356	Afrezza/Insulin Regular, Human/Mannkind Corpor	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+14576	Afrezza/Insulin Regular, Human/Mannkind Corpor	2015	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2015-01-01
+656	Basaglar Kwikpen U-100/Insulin Glargine,Hum.Re...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+7876	Basaglar Kwikpen U-100/Insulin Glargine,Hum.Re...	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+15096	Basaglar Kwikpen U-100/Insulin Glargine,Hum.Re...	2015	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2015-01-01
+3007	Humalog Kwikpen U-200/Insulin Lispro/Eli Lilly...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+10227	Humalog Kwikpen U-200/Insulin Lispro/Eli Lilly...	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+3019	Humulin 70/30 Kwikpen/Insulin NPh Hum/Reg Insu...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+3021	Humulin N Kwikpen/Insulin NPh Human Isophane/E...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+3024	Humulin R U-500 Kwikpen/Insulin Regular, Human...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+10244	Humulin R U-500 Kwikpen/Insulin Regular, Human...	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+17464	Humulin R U-500 Kwikpen/Insulin Regular, Human...	2015	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2015-01-01
+3614	Levemir Flextouch/Insulin Detemir/Novo Nordisk	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+6553	Toujeo Solostar/Insulin Glargine,Hum.Rec.Anlog...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+13773	Toujeo Solostar/Insulin Glargine,Hum.Rec.Anlog...	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+6613	Tresiba Flextouch U-100/Insulin Degludec/Novo ...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+13833	Tresiba Flextouch U-100/Insulin Degludec/Novo ...	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+6614	Tresiba Flextouch U-200/Insulin Degludec/Novo ...	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+13834	Tresiba Flextouch U-200/Insulin Degludec/Novo ...	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+175 rows × 10 columns
+
+year_mask_2013 = insulin_df['Year'] == '2013'
+insulin_2013 = insulin_df[year_mask_2013]
+
+year_mask_2014 = insulin_df['Year'] == '2014'
+insulin_2014 = insulin_df[year_mask_2014]
+
+year_mask_2015 = insulin_df['Year'] == '2015'
+insulin_2015 = insulin_df[year_mask_2015]
+
+year_mask_2016 = insulin_df['Year'] == '2016'
+insulin_2016 = insulin_df[year_mask_2016]
+
+year_mask_2017 = insulin_df['Year'] == '2017'
+insulin_2017 = insulin_df[year_mask_2017]
+Create Heatmaps for correlations
+#Holy Auto-correlation Batman!
+plt.figure(figsize=(15,10))
+sns.heatmap(insulin_df.corr(), cmap='seismic', annot=True,vmin=-1,vmax=1)
+plt.savefig('heatmap.png', format = 'png', bbox_inches='tight')
+
+sns.heatmap(insulin_2013.corr(), cmap='seismic', annot=True,vmin=-1,vmax=1)
+<matplotlib.axes._subplots.AxesSubplot at 0x7ff5c0857828>
+
+sns.heatmap(insulin_2014.corr(), cmap='seismic', annot=True,vmin=-1,vmax=1)
+<matplotlib.axes._subplots.AxesSubplot at 0x7ff5c0386cf8>
+
+sns.heatmap(insulin_2015.corr(), cmap='seismic', annot=True,vmin=-1,vmax=1)
+<matplotlib.axes._subplots.AxesSubplot at 0x7ff5c0348c88>
+
+sns.heatmap(insulin_2016.corr(), cmap='seismic', annot=True,vmin=-1,vmax=1)
+<matplotlib.axes._subplots.AxesSubplot at 0x7ff5bfdd03c8>
+
+sns.heatmap(insulin_2017.corr(), cmap='seismic', annot=True,vmin=-1,vmax=1)
+<matplotlib.axes._subplots.AxesSubplot at 0x7ff5c00e0208>
+
+Modeling
+intcols = ['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries', 'Average Spending Per Dosage Unit (Weighted)', 'Average Spending Per Claim', 'Average Spending Per Beneficiary']
+selected_columns = ['Total Dosage Units', 'Total Claims', 'Total Beneficiaries']
+smaller_df = insulin_df.loc[:,intcols]
+smaller_df = smaller_df.dropna()
+smaller_df.info()
+<class 'pandas.core.frame.DataFrame'>
+Int64Index: 152 entries, 29016 to 35494
+Data columns (total 7 columns):
+Total Spending                                 152 non-null float64
+Total Dosage Units                             152 non-null float64
+Total Claims                                   152 non-null float64
+Total Beneficiaries                            152 non-null float64
+Average Spending Per Dosage Unit (Weighted)    152 non-null float64
+Average Spending Per Claim                     152 non-null float64
+Average Spending Per Beneficiary               152 non-null float64
+dtypes: float64(7)
+memory usage: 9.5 KB
+sns.pairplot(smaller_df);
+
+K-folds
+X = smaller_df.loc[:,['Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+y = smaller_df['Total Spending']
+
+X = X.dropna()
+y = y.dropna()
+X, X_test, y, y_test = train_test_split(X, y, test_size=.2, random_state=10) #hold out 20% of the data for final testing
+
+#this helps with the way kf will generate indices below
+X, y = np.array(X), np.array(y)
+kf = KFold(n_splits=5, shuffle=True, random_state = 42)
+cv_lm_r2s, cv_lm_reg_r2s, cv_lm_lasso_r2s, cv_lm_elastic_r2s = [], [], [], [] #collect the validation results for both models
+
+for train_ind, val_ind in kf.split(X,y):
+    
+    X_train, y_train = X[train_ind], y[train_ind]
+    X_val, y_val = X[val_ind], y[val_ind] 
+    
+    #simple linear regression
+    lm = LinearRegression()
+    lm_reg = Ridge(alpha=1)
+    lm_lasso = Lasso(alpha=1, tol =.03)
+    lm_elastic = ElasticNet(alpha=1,l1_ratio=0.5)
+
+    lm.fit(X_train, y_train)
+    cv_lm_r2s.append(lm.score(X_val, y_val))
+    
+    #ridge with feature scaling
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+    
+    lm_reg.fit(X_train_scaled, y_train)
+    cv_lm_reg_r2s.append(lm_reg.score(X_val_scaled, y_val))
+    
+    #lasso with feature scaling
+    lm_lasso.fit(X_train_scaled, y_train)
+    cv_lm_lasso_r2s.append(lm_lasso.score(X_val_scaled, y_val))
+    
+    #elasticnet
+    lm_elastic.fit(X_train_scaled, y_train)
+    cv_lm_elastic_r2s.append(lm_elastic.score(X_val_scaled, y_val))
+
+print('Simple regression scores: ', cv_lm_r2s)
+print('Ridge scores: ', cv_lm_reg_r2s, '\n')
+print('Lasso scores: ', cv_lm_lasso_r2s, '\n')
+print('Elastic Net scores: ', cv_lm_elastic_r2s, '\n')
+
+simple_mean_r2 = np.mean(cv_lm_r2s)
+ridge_mean_r2 = np.mean(cv_lm_reg_r2s)
+lasso_mean_r2 = np.mean(cv_lm_lasso_r2s)
+en_mean_r2 = np.mean(cv_lm_elastic_r2s)
+
+print(f'Simple mean cv r^2: {np.mean(cv_lm_r2s):.3f} +- {np.std(cv_lm_r2s):.3f}')
+print(f'Ridge mean cv r^2: {np.mean(cv_lm_reg_r2s):.3f} +- {np.std(cv_lm_reg_r2s):.3f}')
+print(f'Lasso mean cv r^2: {np.mean(cv_lm_lasso_r2s):.3f} +- {np.std(cv_lm_lasso_r2s):.3f}')
+print(f'Elastic Net mean cv r^2: {np.mean(cv_lm_elastic_r2s):.3f} +- {np.std(cv_lm_elastic_r2s):.3f}')
+Simple regression scores:  [0.9147312670870833, 0.9267460279156143, 0.7881061628644176, 0.8821569781055655, 0.867641155205753]
+Ridge scores:  [0.9176902390700233, 0.9345313918265175, 0.7939487886122573, 0.9110415341618924, 0.8707879010474809] 
+
+Lasso scores:  [0.9147313290250914, 0.9267460272958967, 0.7881061166788463, 0.8821570630718238, 0.8676411212335686] 
+
+Elastic Net scores:  [0.8840220599561023, 0.9351199740360867, 0.7722793545518414, 0.8962761354097372, 0.8686082223149932] 
+
+Simple mean cv r^2: 0.876 +- 0.049
+Ridge mean cv r^2: 0.886 +- 0.050
+Lasso mean cv r^2: 0.876 +- 0.049
+Elastic Net mean cv r^2: 0.871 +- 0.054
+#Adjusted R**2
+
+def adj_r2(r_squared):
+    return 1 - (1-r_squared)*(len(y_train)-1)/(len(y_train)-X_train_scaled.shape[1]-1)
+
+adj_r2(simple_mean_r2)
+0.8718723285013541
+test_list = [simple_mean_r2, ridge_mean_r2, lasso_mean_r2, en_mean_r2]
+results_list = []
+for test in test_list:
+    results_list.append(adj_r2(test))
+results_list
+#This shows ridge being my best model with an alpha of 1.
+[0.8718723285013541, 0.881909647425687, 0.8718723421533372, 0.8671082831006474]
+#now to look at optimal alpha values!
+alphalist = 10**(np.linspace(-2,2,200))
+err_vec_val = np.zeros(len(alphalist))
+err_vec_train = np.zeros(len(alphalist))
+
+for i,curr_alpha in enumerate(alphalist):
+
+    steps = [('standardize', StandardScaler()), 
+             ('lasso', Lasso(alpha = curr_alpha, tol = 0.03 ))]
+
+    pipe = Pipeline(steps)
+    pipe.fit(X_train, y_train)
+    
+    val_set_pred = pipe.predict(X_val)
+    err_vec_val[i] = rmse(y_val, val_set_pred)
+plt.plot(np.log10(alphalist), err_vec_val)
+[<matplotlib.lines.Line2D at 0x7ff5bab9d438>]
+
+np.min(err_vec_val)
+152128357.32530883
+best_alpha_lasso = alphalist[np.argmin(err_vec_val)]
+best_alpha_lasso
+0.019116440753857017
+alphalist = 10**(np.linspace(-2,2,200))
+err_vec_val = np.zeros(len(alphalist))
+err_vec_train = np.zeros(len(alphalist))
+
+for i,curr_alpha in enumerate(alphalist):
+
+    steps = [('standardize', StandardScaler()), 
+             ('ridge', Ridge(alpha = curr_alpha ))]
+
+    pipe = Pipeline(steps)
+    pipe.fit(X_train, y_train)
+    
+    val_set_pred = pipe.predict(X_val)
+    err_vec_val[i] = rmse(y_val, val_set_pred)
+plt.plot(np.log10(alphalist), err_vec_val)
+[<matplotlib.lines.Line2D at 0x7ff5ba839f60>]
+
+np.min(err_vec_val)
+147065574.0044073
+best_alpha_ridge = alphalist[np.argmin(err_vec_val)]
+best_alpha_ridge
+17.225859653987875
+alphalist = 10**(np.linspace(-2,2,200))
+err_vec_val = np.zeros(len(alphalist))
+err_vec_train = np.zeros(len(alphalist))
+
+for i,curr_alpha in enumerate(alphalist):
+
+    steps = [('standardize', StandardScaler()), 
+             ('elasticnet', ElasticNet(alpha = curr_alpha,l1_ratio=.5))]
+
+    pipe = Pipeline(steps)
+    pipe.fit(X_train, y_train)
+    
+    val_set_pred = pipe.predict(X_val)
+    err_vec_val[i] = rmse(y_val, val_set_pred)
+plt.plot(np.log10(alphalist), err_vec_val)
+[<matplotlib.lines.Line2D at 0x7ff5ba9c56d8>]
+
+np.min(err_vec_val)
+147065985.2835821
+best_alpha_en = alphalist[np.argmin(err_vec_val)]
+best_alpha_en
+0.352970730273065
+#Now let's run it again with optimal alphas!
+kf = KFold(n_splits=5, shuffle=True, random_state = 42)
+cv_lm_r2s, cv_lm_reg_r2s, cv_lm_lasso_r2s, cv_lm_elastic_r2s = [], [], [], [] #collect the validation results for both models
+
+for train_ind, val_ind in kf.split(X,y):
+    
+    X_train, y_train = X[train_ind], y[train_ind]
+    X_val, y_val = X[val_ind], y[val_ind] 
+    
+    #simple linear regression
+    lm = LinearRegression()
+    lm_reg = Ridge(alpha=best_alpha_ridge)
+    lm_lasso = Lasso(alpha=best_alpha_lasso, tol =.03)
+    lm_elastic = ElasticNet(alpha=best_alpha_en,l1_ratio=0.5)
+
+    lm.fit(X_train, y_train)
+    cv_lm_r2s.append(lm.score(X_val, y_val))
+    
+    #ridge with feature scaling
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_val_scaled = scaler.transform(X_val)
+    
+    lm_reg.fit(X_train_scaled, y_train)
+    cv_lm_reg_r2s.append(lm_reg.score(X_val_scaled, y_val))
+    
+    #lasso with feature scaling
+    lm_lasso.fit(X_train_scaled, y_train)
+    cv_lm_lasso_r2s.append(lm_lasso.score(X_val_scaled, y_val))
+    
+    #elasticnet
+    lm_elastic.fit(X_train_scaled, y_train)
+    cv_lm_elastic_r2s.append(lm_elastic.score(X_val_scaled, y_val))
+
+print('Simple regression scores: ', cv_lm_r2s)
+print('Ridge scores: ', cv_lm_reg_r2s, '\n')
+print('Lasso scores: ', cv_lm_lasso_r2s, '\n')
+print('Elastic Net scores: ', cv_lm_elastic_r2s, '\n')
+
+simple_mean_r2 = np.mean(cv_lm_r2s)
+ridge_mean_r2 = np.mean(cv_lm_reg_r2s)
+lasso_mean_r2 = np.mean(cv_lm_lasso_r2s)
+en_mean_r2 = np.mean(cv_lm_elastic_r2s)
+
+print(f'Simple mean cv r^2: {np.mean(cv_lm_r2s):.3f} +- {np.std(cv_lm_r2s):.3f}')
+print(f'Ridge mean cv r^2: {np.mean(cv_lm_reg_r2s):.3f} +- {np.std(cv_lm_reg_r2s):.3f}')
+print(f'Lasso mean cv r^2: {np.mean(cv_lm_lasso_r2s):.3f} +- {np.std(cv_lm_lasso_r2s):.3f}')
+print(f'Elastic Net mean cv r^2: {np.mean(cv_lm_elastic_r2s):.3f} +- {np.std(cv_lm_elastic_r2s):.3f}')
+Simple regression scores:  [0.9147312670870833, 0.9267460279156143, 0.7881061628644176, 0.8821569781055655, 0.867641155205753]
+Ridge scores:  [0.9084412091389475, 0.9421970300261121, 0.7930427110678959, 0.9227840918491383, 0.8763042836878926] 
+
+Lasso scores:  [0.9147312988997849, 0.9267460282962591, 0.7881061624290191, 0.8821569820183834, 0.8676411555899266] 
+
+Elastic Net scores:  [0.9086286154082553, 0.9421897125971539, 0.7930892096632478, 0.9228517931793185, 0.8763035918394623] 
+
+Simple mean cv r^2: 0.876 +- 0.049
+Ridge mean cv r^2: 0.889 +- 0.052
+Lasso mean cv r^2: 0.876 +- 0.049
+Elastic Net mean cv r^2: 0.889 +- 0.052
+/home/nick/anaconda3/lib/python3.7/site-packages/sklearn/linear_model/coordinate_descent.py:475: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations. Duality gap: 7.19054224215496e+17, tolerance: 5.666505967170246e+17
+  positive)
+/home/nick/anaconda3/lib/python3.7/site-packages/sklearn/linear_model/coordinate_descent.py:475: ConvergenceWarning: Objective did not converge. You might want to increase the number of iterations. Duality gap: 6.574800339673829e+17, tolerance: 6.165894501150661e+17
+  positive)
+test_list = [simple_mean_r2, ridge_mean_r2, lasso_mean_r2, en_mean_r2]
+results_list = []
+for test in test_list:
+    results_list.append(adj_r2(test))
+results_list
+
+## Looks like an Elastic Net is the winner, now let's optimize elastic net!
+[0.8718723285013541, 0.8849588285460619, 0.8718723359449544, 0.885019442103213]
+#This did not work. Leaving it at .5.
+
+# netlist = np.linspace(0,1,20)
+# # best_r2 = []
+# for curr_l1_ratio in netlist:
+#     steps = [('standardize', StandardScaler()), 
+#              ('ElasticNet', ElasticNet(alpha = best_alpha, l1_ratio=curr_l1_ratio, tol=.05))]
+
+#     pipe = Pipeline(steps)
+#     pipe.fit(X_train, y_train)
+    
+#     print(lm_elastic.score(X_val_scaled, y_val))
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+-234.46746600968328
+Applying model to test data
+lm_elastic_test = ElasticNet(alpha = best_alpha_en, l1_ratio=.5)
+X_test_scaled = scaler.fit_transform(X_test)
+lm_elastic_test.fit(X_test_scaled, y_test)
+ElasticNet(alpha=0.352970730273065, copy_X=True, fit_intercept=True,
+           l1_ratio=0.5, max_iter=1000, normalize=False, positive=False,
+           precompute=False, random_state=None, selection='cyclic', tol=0.0001,
+           warm_start=False)
+list(zip(selected_columns, lm_elastic_test.coef_))
+[('Total Dosage Units', 224096327.4631308),
+ ('Total Claims', 232491878.87841812),
+ ('Total Beneficiaries', 241582289.64891875)]
+ 
+lm_elastic_test.score(X_test_scaled,y_test)
+
+#WOAH Unexpectedly higher. Probably due to my dataset being on the smaller side.
+0.9778633686925828
+lasso_model = Lasso(alpha = best_alpha_en) #had to adjust the tol, since the objective wouldn't converge.
+lasso_model.fit(X_train_scaled, y_train)
+
+list(zip(selected_columns, lasso_model.coef_))
+[('Total Dosage Units', 69834964.86508916),
+ ('Total Claims', 49479539.061537676),
+ ('Total Beneficiaries', 321222176.43105733)]
+# This k-folds shows ridge/elasticnet to be mildly more effective.
+# Additionally, since my heatmaps show my features to be heavily
+# colinear, the added bias from one of these models is beneficial.
+#Per Jonathan and research, both regressions help with multicolinearity, so that's why I ran an ElasticNet
+#Running model on whole dataset for practice.
+lm_elastic_whole_model = ElasticNet(alpha = best_alpha_en, l1_ratio=.5)
+X_scaled = scaler.fit_transform(X)
+lm_elastic_whole_model.fit(X_scaled, y)
+ElasticNet(alpha=0.352970730273065, copy_X=True, fit_intercept=True,
+           l1_ratio=0.5, max_iter=1000, normalize=False, positive=False,
+           precompute=False, random_state=None, selection='cyclic', tol=0.0001,
+           warm_start=False)
+list(zip(selected_columns, lm_elastic_whole_model.coef_))
+[('Total Dosage Units', 127871076.73020683),
+ ('Total Claims', 130119403.26295061),
+ ('Total Beneficiaries', 148874472.3499654)]
+Apply model to whole data
+lm_elastic_whole_model.score(X_scaled,y)
+#this makes sense, since my test data was so high relative to my train.
+0.919067502580292
+lm_elastic_whole_model.coef_
+array([1.27871077e+08, 1.30119403e+08, 1.48874472e+08])
+# lm_lasso_whole_model.score(X_scaled,y)
+#Running LASSO model on whole dataset for graph consistency
+lm_lasso_whole_model = Lasso(alpha = best_alpha_lasso, tol =.035)
+X_scaled = scaler.fit_transform(X)
+lm_lasso_whole_model.fit(X_scaled, y)
+Lasso(alpha=0.019116440753857017, copy_X=True, fit_intercept=True,
+      max_iter=1000, normalize=False, positive=False, precompute=False,
+      random_state=None, selection='cyclic', tol=0.035, warm_start=False)
+lm_lasso_whole_model.coef_
+array([7.96392072e+07, 6.30769737e+07, 2.88653233e+08])
+Loop through dataframes and output their ridge coefficients
+df_list = [insulin_2013, insulin_2014, insulin_2015, insulin_2016, insulin_2017]
+insulin_2013 = insulin_2013[['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+insulin_2014 = insulin_2014[['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+insulin_2015 = insulin_2015[['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+insulin_2016 = insulin_2016[['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+insulin_2017 = insulin_2017[['Total Spending', 'Total Dosage Units', 'Total Claims', 'Total Beneficiaries']]
+insulin_2013.dropna(inplace=True)
+insulin_2014.dropna(inplace=True)
+insulin_2015.dropna(inplace=True)
+insulin_2016.dropna(inplace=True)
+insulin_2017.dropna(inplace=True)
+insulin_2013 = insulin_2013.astype(int)
+insulin_2014 = insulin_2014.astype(int)
+insulin_2015 = insulin_2015.astype(int)
+insulin_2016 = insulin_2016.astype(int)
+insulin_2017 = insulin_2017.astype(int)
+ 
+#iterate_elastic_net(smaller_df,42)
+
+#This did not work. A previous model operating on the Lasso Coef is being used for my presentation.
+#My computer crashed, and the graph saved to github, so I've uploaded it and will be discussing it instead.
+#I would be happy to go over any of this in person to better explain what happened.
+[('Total Dosage Units', 88886929.41120191),
+ ('Total Claims', 157437238.8019656),
+ ('Total Beneficiaries', 285572071.79241014)]
+Graphs
+plt.figure(figsize=(30,18))
+
+plt.rcParams["figure.dpi"] = 100
+plt.rc('xtick', labelsize=25)
+plt.rc('ytick', labelsize=25)
+
+spendingplot = sns.lineplot(x='Year', y='Average Spending Per Dosage Unit (Weighted)', data = insulin_df)
+spendingplot.set_xlabel('Year',fontsize = 30, color = 'black')
+spendingplot.set_ylabel('Average Spending Per Dosage Unit (Weighted)', fontsize = 30, color = 'black')
+spendingplot.set_title('Average Spending Over Time', fontsize = 50, color = 'black')
+plt.savefig('spendinggrowth.png', format ='png',bbox_inches='tight')
+
+plt.figure(figsize=(30,18))
+
+plt.rcParams["figure.dpi"] = 100
+plt.rc('xtick', labelsize=25)
+plt.rc('ytick', labelsize=25)
+
+regplot = sns.regplot(x='Total Beneficiaries', y = 'Total Spending', data = insulin_df)
+regplot.set_xlabel('Total Beneficiaries',fontsize = 32, color = 'black')
+regplot.set_ylabel('Total Spending', fontsize = 32, color = 'black')
+regplot.set_title('Relationship Between Beneficiaries and Spending', fontsize = 40, color = 'black')
+plt.ticklabel_format(style='sci', axis='y')
+plt.ticklabel_format(style='sci', axis='x')
+# plt.savefig('regplot.png', format ='png',bbox_inches='tight')
+
+google_data = pd.read_csv('multiTimeline.csv', skiprows=2, parse_dates=['Month'], index_col=['Month'])
+# plt.plot(data))
+google_data
+plt.figure(figsize=(17,5))
+plt.rcParams.update(plt.rcParamsDefault)
+
+
+# color = 'white'
+# plt.rcParams['text.color'] = color
+# plt.rcParams['axes.labelcolor'] = color
+# plt.rcParams['xtick.color'] = color
+# plt.rcParams['ytick.color'] = color
+# plt.rcParams["figure.dpi"] = 100
+# sns.despine()
+
+trendsplot = plt.plot(google_data)
+plt.suptitle("Searches Over Time: 'insulin price'", fontsize=18)
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Search Rate', fontsize=12)
+# plt.savefig('trendsdata.png', format ='png',bbox_inches='tight')
+/home/nick/anaconda3/lib/python3.7/site-packages/pandas/plotting/_converter.py:129: FutureWarning: Using an implicitly registered datetime converter for a matplotlib plotting method. The converter was registered by pandas on import. Future versions of pandas will require you to explicitly register matplotlib converters.
+
+To register the converters:
+	>>> from pandas.plotting import register_matplotlib_converters
+	>>> register_matplotlib_converters()
+  warnings.warn(msg, FutureWarning)
+Text(0, 0.5, 'Search Rate')
+
+# this was me trying to figure out how to doubleplot the googletrends cost data. I did not succeed.
+
+# spending_time_df = insulin_df[['Average Spending Per Dosage Unit (Weighted)','Year']]
+
+# fig, ax1 = plt.subplots()
+
+
+# plt.figure(figsize=(10,10))
+
+# color = 'tab:red'
+# ax1.set_xlabel('Year', color=color)
+# ax1.set_ylabel('Average Spending Per Dosage Unit (Weighted)')
+# ax1.plot(spending_time_df,)
+# ax1.tick_params(axis = 'y')
+           
+# ax2 = ax1.twinx()
+           
+# color  = 'tab:blue'
+# ax2.set_ylabel('Search Rates')
+# ax2.plot(google_data)
+# ax2.tick_params(axis= 'y')
+# fig.tight_layout()
+# # plt.figure(figsize=(30,18))
+
+# # plt.rcParams["figure.dpi"] = 100
+# # plt.rc('xtick', labelsize=25)
+# # plt.rc('ytick', labelsize=25)
+
+# # spendingplot = sns.lineplot(x='Year', y='Average Spending Per Dosage Unit (Weighted)', data = insulin_df)
+# # spendingplot.set_xlabel('Year',fontsize = 30, color = 'black')
+# # spendingplot.set_ylabel('Average Spending Per Dosage Unit (Weighted)', fontsize = 30, color = 'black')
+# # spendingplot.set_title('Average Spending Over Time', fontsize = 50, color = 'black')
+# # plt.savefig('spendinggrowth.png', format ='png',bbox_inches='tight')
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+~/anaconda3/lib/python3.7/site-packages/matplotlib/axis.py in convert_units(self, x)
+   1550         try:
+-> 1551             ret = self.converter.convert(x, self.units, self)
+   1552         except Exception as e:
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/category.py in convert(value, unit, axis)
+     51             raise ValueError(
+---> 52                 'Missing category information for StrCategoryConverter; '
+     53                 'this might be caused by unintendedly mixing categorical and '
+
+ValueError: Missing category information for StrCategoryConverter; this might be caused by unintendedly mixing categorical and numeric data
+
+The above exception was the direct cause of the following exception:
+
+ConversionError                           Traceback (most recent call last)
+<ipython-input-213-6546b07a2d85> in <module>
+      9 ax1.set_xlabel('Year', color=color)
+     10 ax1.set_ylabel('Average Spending Per Dosage Unit (Weighted)')
+---> 11 ax1.plot(spending_time_df,)
+     12 ax1.tick_params(axis = 'y')
+     13 
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/axes/_axes.py in plot(self, scalex, scaley, data, *args, **kwargs)
+   1666         lines = [*self._get_lines(*args, data=data, **kwargs)]
+   1667         for line in lines:
+-> 1668             self.add_line(line)
+   1669         self.autoscale_view(scalex=scalex, scaley=scaley)
+   1670         return lines
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/axes/_base.py in add_line(self, line)
+   1898             line.set_clip_path(self.patch)
+   1899 
+-> 1900         self._update_line_limits(line)
+   1901         if not line.get_label():
+   1902             line.set_label('_line%d' % len(self.lines))
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/axes/_base.py in _update_line_limits(self, line)
+   1920         Figures out the data limit of the given line, updating self.dataLim.
+   1921         """
+-> 1922         path = line.get_path()
+   1923         if path.vertices.size == 0:
+   1924             return
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/lines.py in get_path(self)
+   1025         """
+   1026         if self._invalidy or self._invalidx:
+-> 1027             self.recache()
+   1028         return self._path
+   1029 
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/lines.py in recache(self, always)
+    672             x = self._x
+    673         if always or self._invalidy:
+--> 674             yconv = self.convert_yunits(self._yorig)
+    675             y = _to_unmasked_float_array(yconv).ravel()
+    676         else:
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/artist.py in convert_yunits(self, y)
+    190         if ax is None or ax.yaxis is None:
+    191             return y
+--> 192         return ax.yaxis.convert_units(y)
+    193 
+    194     @property
+
+~/anaconda3/lib/python3.7/site-packages/matplotlib/axis.py in convert_units(self, x)
+   1552         except Exception as e:
+   1553             raise munits.ConversionError('Failed to convert value(s) to axis '
+-> 1554                                          f'units: {x!r}') from e
+   1555         return ret
+   1556 
+
+ConversionError: Failed to convert value(s) to axis units: array(['2013', '2014', '2015', '2016', '2017', '2013', '2014', '2015',
+       '2016', '2017', '2013', '2014', '2015', '2016', '2017', '2013',
+       '2014', '2015', '2016', '2017', '2013', '2014', '2015', '2016',
+       '2017', '2013', '2014', '2015', '2016', '2017', '2013', '2014',
+       '2015', '2016', '2017', '2013', '2014', '2015', '2016', '2017',
+       '2013', '2014', '2015', '2016', '2017', '2013', '2014', '2015',
+       '2016', '2017', '2013', '2014', '2015', '2016', '2017', '2013',
+       '2014', '2015', '2016', '2017', '2013', '2014', '2015', '2016',
+       '2017', '2013', '2014', '2015', '2016', '2017', '2013', '2014',
+       '2015', '2016', '2017', '2013', '2014', '2015', '2016', '2017',
+       '2013', '2014', '2015', '2016', '2017', '2013', '2014', '2015',
+       '2016', '2017', '2013', '2014', '2015', '2016', '2017', '2013',
+       '2014', '2015', '2016', '2017', '2013', '2014', '2015', '2016',
+       '2017', '2013', '2014', '2015', '2016', '2017', '2013', '2014',
+       '2015', '2016', '2017', '2013', '2014', '2015', '2016', '2017',
+       '2013', '2014', '2015', '2016', '2017', '2013', '2014', '2015',
+       '2016', '2017', '2013', '2014', '2015', '2016', '2017', '2013',
+       '2014', '2015', '2016', '2017', '2013', '2014', '2015', '2016',
+       '2017', '2013', '2014', '2015', '2016', '2017', '2013', '2014',
+       '2015', '2016', '2017', '2013', '2014', '2015', '2016', '2017',
+       '2013', '2014', '2015', '2016', '2017', '2013', '2014', '2015',
+       '2016', '2017', '2013', '2014', '2015', '2016', '2017'],
+      dtype=object)
+
+<Figure size 1000x1000 with 0 Axes>
+insulin_df.head()
+4	ID	Year	Total Spending	Total Dosage Units	Total Claims	Total Beneficiaries	Average Spending Per Dosage Unit (Weighted)	Average Spending Per Claim	Average Spending Per Beneficiary	dt_year
+136	Afrezza/Insulin Regular, Human/Mannkind Corpor	2013	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2013-01-01
+7356	Afrezza/Insulin Regular, Human/Mannkind Corpor	2014	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2014-01-01
+14576	Afrezza/Insulin Regular, Human/Mannkind Corpor	2015	NaN	NaN	NaN	NaN	NaN	NaN	NaN	2015-01-01
+21796	Afrezza/Insulin Regular, Human/Mannkind Corpor	2016	396166.93	134460.0	700.0	NaN	2.914455	565.952757	NaN	2016-01-01
+29016	Afrezza/Insulin Regular, Human/Mannkind Corpor	2017	1538984.50	424278.0	2231.0	639.0	3.543422	689.818243	2408.426448	2017-01-01
+ 
